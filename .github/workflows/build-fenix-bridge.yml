@@ -1,0 +1,71 @@
+name: Build FENIX Bridge APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'FenixTVBridge_Source.zip'
+      - '.github/workflows/build-fenix-bridge.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Locate Android SDK Manager
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found"
+            exit 1
+          fi
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --version
+
+      - name: Install Android API 36
+        shell: bash
+        run: |
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Extract bridge source
+        run: |
+          rm -rf build-src
+          mkdir build-src
+          unzip -q FenixTVBridge_Source.zip -d build-src
+
+      - name: Build APK
+        working-directory: build-src/FenixBridge
+        run: gradle --no-daemon assembleDebug
+
+      - name: Prepare artifact
+        run: |
+          cp build-src/FenixBridge/app/build/outputs/apk/debug/app-debug.apk FenixTVBridge.apk
+          sha256sum FenixTVBridge.apk > FenixTVBridge.apk.sha256
+          ls -lh FenixTVBridge.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FenixTVBridge
+          path: |
+            FenixTVBridge.apk
+            FenixTVBridge.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
