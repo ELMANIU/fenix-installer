@@ -1,0 +1,11 @@
+name = "fenix-installer"
+main = "src/index.js"
+compatibility_date = "2026-10-05"
+workers_dev = true
+
+[vars]
+PUBLIC_BASE_URL = "https://fenix-installer.elmanuchale.workers.dev"
+
+[[r2_buckets]]
+binding = "RELEASES"
+bucket_name = "fenix-tv-releases"
