@@ -9,3 +9,7 @@ PUBLIC_BASE_URL = "https://fenix-installer.elmanuchale.workers.dev"
 [[r2_buckets]]
 binding = "RELEASES"
 bucket_name = "fenix-tv-releases"
+
+
+
+
