@@ -285,7 +285,8 @@ button,.btn{width:100%;display:block;border:0;border-radius:14px;padding:16px 18
 const TOKEN=${safeToken};
 const BASE=${safeBase};
 const DEEP=${safeDeep};
-const inBridge = !!window.FenixBridge;
+const qs = new URLSearchParams(location.search);
+const inBridge = qs.get("bridge") === "1" || !!window.FenixBridge;
 
 if (inBridge) {
   document.getElementById('browserCard').classList.add('hidden');
@@ -300,6 +301,11 @@ function setStatus(msg, cls){
   s.className='status'+(cls?' '+cls:'');
   s.textContent=msg;
 }
+window.fenixBridgeReady=function(){
+  document.getElementById('browserCard').classList.add('hidden');
+  document.getElementById('installerCard').classList.remove('hidden');
+};
+
 window.fenixNativeProgress=function(stage,msg,percent){
   pct(percent||0);
   setStatus((stage?stage+'\n':'')+(msg||''));
