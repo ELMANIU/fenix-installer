@@ -15,7 +15,17 @@ export default {
     }
 
     if (path === "/install" && request.method === "GET") {
+      // Compatibilidad con el Bridge ya instalado: si el APK abre /install?bridge=1,
+      // lo mandamos a una ruta exclusiva que SIEMPRE muestra el formulario.
+      if (url.searchParams.get("bridge") === "1") {
+        const token = url.searchParams.get("t") || "";
+        return Response.redirect(`${url.origin}/bridge?t=${encodeURIComponent(token)}&v=3`, 302);
+      }
       return installLanding(url, env);
+    }
+
+    if (path === "/bridge" && request.method === "GET") {
+      return bridgeLanding(url, env);
     }
 
     if (path === "/api/install/resolve" && request.method === "GET") {
@@ -212,9 +222,6 @@ function installLanding(url, env) {
   const token = url.searchParams.get("t") || "";
   const base = env.PUBLIC_BASE_URL || `${url.protocol}//${url.host}`;
   const deep = `fenixtvbridge://install?token=${encodeURIComponent(token)}&base=${encodeURIComponent(base)}`;
-  const safeToken = JSON.stringify(token);
-  const safeBase = JSON.stringify(base);
-  const safeDeep = JSON.stringify(deep);
 
   return new Response(`<!doctype html>
 <html>
@@ -222,29 +229,7 @@ function installLanding(url, env) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>FÉNIX LG Installer</title>
-<style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;background:#07090f;color:#fff;font:16px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
-.wrap{max-width:620px;margin:auto;padding:22px 16px 48px}
-.hero{padding:22px 0 10px}
-h1{font-size:32px;margin:0 0 8px}
-.sub{color:#aeb8ce;line-height:1.55;margin:0}
-.card{background:#111624;border:1px solid #26334f;border-radius:22px;padding:20px;margin-top:16px;box-shadow:0 18px 55px #0007}
-label{display:block;font-size:13px;color:#aeb8ce;margin:14px 0 7px}
-input{width:100%;padding:15px 14px;border-radius:12px;border:1px solid #34425f;background:#0b101a;color:#fff;font-size:17px;outline:none}
-input:focus{border-color:#8c58ff}
-button,.btn{width:100%;display:block;border:0;border-radius:14px;padding:16px 18px;margin-top:14px;color:#fff;font-weight:800;font-size:16px;text-align:center;text-decoration:none;background:linear-gradient(135deg,#f43b47,#7b2cff)}
-.btn.alt{background:#202a40}
-.mini{font-size:13px;color:#8f9ab0;line-height:1.5}
-.status{margin-top:15px;padding:14px;border-radius:12px;background:#0b101a;border:1px solid #26334f;min-height:54px;white-space:pre-wrap}
-.bar{height:8px;background:#20283a;border-radius:999px;overflow:hidden;margin-top:12px}
-.bar>i{display:block;width:0;height:100%;background:linear-gradient(90deg,#f43b47,#7b2cff);transition:width .25s ease}
-.ok{color:#8ce99a}.err{color:#ff8787}
-.hidden{display:none!important}
-.step{display:flex;gap:10px;align-items:flex-start;margin:10px 0;color:#cbd3e3}
-.badge{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#202a40;font-size:13px;font-weight:800;flex:0 0 26px}
-</style>
+<style>${sharedInstallerCss()}</style>
 </head>
 <body>
 <div class="wrap">
@@ -256,90 +241,159 @@ button,.btn{width:100%;display:block;border:0;border-radius:14px;padding:16px 18
   <div class="card">
     <div class="step"><div class="badge">1</div><div>En la TV abre <b>Developer Mode</b>, activa <b>Dev Mode Status</b> y <b>Key Server</b>.</div></div>
     <div class="step"><div class="badge">2</div><div>El teléfono y la LG deben estar conectados a la misma red Wi‑Fi.</div></div>
-    <div class="step"><div class="badge">3</div><div>Introduce la IP y la passphrase de 6 caracteres mostradas por Developer Mode.</div></div>
+    <div class="step"><div class="badge">3</div><div>La IP y la passphrase se introducirán dentro de FÉNIX Bridge.</div></div>
   </div>
 
-  <div id="browserCard" class="card">
-    <b>Necesitas FÉNIX Bridge una sola vez</b>
-    <p class="mini">La página web controla la instalación, pero Android necesita un puente mínimo para conectarse por SSH a la TV. La IP y la passphrase no se envían a Telegram ni se guardan en Cloudflare.</p>
-    <a id="openBridge" class="btn" href="${deep}">ABRIR FÉNIX BRIDGE</a>
-    <a class="btn alt" href="/installer.apk">INSTALAR FÉNIX BRIDGE</a>
+  <div class="card">
+    <b>FÉNIX Bridge</b>
+    <p class="mini">La web administra versiones y descargas. El Bridge realiza únicamente la conexión local con tu LG.</p>
+    <a class="btn" href="${deep}">ABRIR FÉNIX BRIDGE</a>
+    <a class="btn alt" href="/installer.apk?v=3">INSTALAR / ACTUALIZAR BRIDGE</a>
+  </div>
+</div>
+</body>
+</html>`, {
+    headers: installerHeaders("browser-v3")
+  });
+}
+
+function bridgeLanding(url, env) {
+  const token = url.searchParams.get("t") || "";
+  const base = env.PUBLIC_BASE_URL || `${url.protocol}//${url.host}`;
+  const safeToken = JSON.stringify(token);
+  const safeBase = JSON.stringify(base);
+
+  // IMPORTANTE: esta página NO intenta "detectar" si estamos dentro del APK.
+  // La ruta /bridge existe únicamente para el Bridge y el formulario se muestra
+  // desde el servidor, por lo que no puede quedarse en la pantalla de instalación.
+  return new Response(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FÉNIX Bridge</title>
+<style>${sharedInstallerCss()}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="connected">● BRIDGE CONECTADO</div>
+    <h1>🔥 Instalar en LG</h1>
+    <p class="sub">Introduce los datos que aparecen en Developer Mode de tu televisión.</p>
   </div>
 
-  <div id="installerCard" class="card hidden">
+  <div class="card">
     <label>IP de la LG</label>
     <input id="ip" inputmode="decimal" autocomplete="off" placeholder="192.168.1.86">
 
-    <label>Passphrase de Developer Mode</label>
-    <input id="pass" type="password" maxlength="32" autocomplete="off" placeholder="••••••">
+    <label>Passphrase</label>
+    <input id="pass" type="password" maxlength="32" autocomplete="off" placeholder="6 caracteres">
 
     <button id="go" onclick="startInstall()">INSTALAR FÉNIX TV</button>
 
     <div class="bar"><i id="bar"></i></div>
-    <div id="status" class="status">Listo para comenzar.</div>
-    <p class="mini">El IPK se descarga temporalmente, se comprueba con SHA‑256, se copia a la TV, se instala y después se elimina del teléfono.</p>
+    <div id="status" class="status">${token ? "Listo para comenzar." : "Abre esta aplicación desde el botón del bot de Telegram para obtener una sesión de instalación."}</div>
+
+    <p class="mini">La IP y la passphrase permanecen en este teléfono. El IPK se descarga temporalmente, se verifica con SHA‑256 y se elimina al terminar.</p>
   </div>
 </div>
 
 <script>
 const TOKEN=${safeToken};
 const BASE=${safeBase};
-const DEEP=${safeDeep};
-const qs = new URLSearchParams(location.search);
-const inBridge = qs.get("bridge") === "1" || !!window.FenixBridge;
 
-if (inBridge) {
-  document.getElementById('browserCard').classList.add('hidden');
-  document.getElementById('installerCard').classList.remove('hidden');
-} else {
-  document.getElementById('openBridge').href = DEEP;
+function pct(n){
+  document.getElementById('bar').style.width=Math.max(0,Math.min(100,n||0))+'%';
 }
-
-function pct(n){ document.getElementById('bar').style.width=Math.max(0,Math.min(100,n||0))+'%'; }
 function setStatus(msg, cls){
   const s=document.getElementById('status');
   s.className='status'+(cls?' '+cls:'');
   s.textContent=msg;
 }
 window.fenixBridgeReady=function(){
-  document.getElementById('browserCard').classList.add('hidden');
-  document.getElementById('installerCard').classList.remove('hidden');
+  setStatus(TOKEN ? 'Bridge conectado. Listo para comenzar.' :
+    'Bridge conectado. Vuelve al bot de Telegram y pulsa INSTALAR FÉNIX TV para autorizar la sesión.', TOKEN ? 'ok' : '');
 };
-
 window.fenixNativeProgress=function(stage,msg,percent){
   pct(percent||0);
-  setStatus((stage?stage+'\n':'')+(msg||''));
+  setStatus((stage?stage+'\\n':'')+(msg||''));
 };
 window.fenixNativeDone=function(ok,msg){
   pct(ok?100:0);
-  setStatus(msg|| (ok?'Instalación completada.':'No se pudo completar.'), ok?'ok':'err');
+  setStatus(msg || (ok?'Instalación completada.':'No se pudo completar.'), ok?'ok':'err');
   document.getElementById('go').disabled=false;
 };
 
 function startInstall(){
-  if(!TOKEN){ setStatus('El enlace de instalación no tiene token. Vuelve a abrirlo desde el bot de Telegram.','err'); return; }
-  if(!window.FenixBridge){ location.href=DEEP; return; }
   const ip=document.getElementById('ip').value.trim();
   const pass=document.getElementById('pass').value.trim();
-  if(!/^((10\.)|(192\.168\.)|(172\.(1[6-9]|2\d|3[01])\.))/.test(ip)){
-    setStatus('Escribe una IP privada válida de tu LG, por ejemplo 192.168.1.86.','err'); return;
+
+  if(!TOKEN){
+    setStatus('Sesión no autorizada. Vuelve al bot de Telegram, escribe /start y abre el instalador desde ese botón.','err');
+    return;
   }
-  if(pass.length<4){ setStatus('Escribe la passphrase que muestra Developer Mode.','err'); return; }
+  if(!window.FenixBridge || typeof window.FenixBridge.install !== 'function'){
+    setStatus('El puente nativo no está disponible. Cierra esta pantalla y ábrela desde la aplicación FÉNIX Bridge.','err');
+    return;
+  }
+  if(!/^((10\\.)|(192\\.168\\.)|(172\\.(1[6-9]|2\\d|3[01])\\.))/.test(ip)){
+    setStatus('Escribe una IP privada válida, por ejemplo 192.168.1.86.','err');
+    return;
+  }
+  if(pass.length < 4){
+    setStatus('Escribe la passphrase que muestra Developer Mode.','err');
+    return;
+  }
+
   document.getElementById('go').disabled=true;
-  setStatus('Iniciando instalación…');
   pct(3);
+  setStatus('Iniciando instalación…');
   window.FenixBridge.install(ip, pass, TOKEN, BASE);
 }
 </script>
 </body>
 </html>`, {
-    headers: {
-      "content-type":"text/html; charset=utf-8",
-      "cache-control":"no-store",
-      "x-content-type-options":"nosniff",
-      "referrer-policy":"no-referrer"
-    }
+    headers: installerHeaders("bridge-v3")
   });
+}
+
+function installerHeaders(version) {
+  return {
+    "content-type":"text/html; charset=utf-8",
+    "cache-control":"no-store, no-cache, must-revalidate, max-age=0",
+    "pragma":"no-cache",
+    "expires":"0",
+    "x-fenix-installer-version":version,
+    "x-content-type-options":"nosniff",
+    "referrer-policy":"no-referrer"
+  };
+}
+
+function sharedInstallerCss() {
+  return `
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#07090f;color:#fff;font:16px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+.wrap{max-width:620px;margin:auto;padding:22px 16px 48px}
+.hero{padding:22px 0 10px}
+h1{font-size:32px;margin:8px 0}
+.sub{color:#aeb8ce;line-height:1.55;margin:0}
+.card{background:#111624;border:1px solid #26334f;border-radius:22px;padding:20px;margin-top:16px;box-shadow:0 18px 55px #0007}
+label{display:block;font-size:13px;color:#aeb8ce;margin:14px 0 7px}
+input{width:100%;padding:15px 14px;border-radius:12px;border:1px solid #34425f;background:#0b101a;color:#fff;font-size:17px;outline:none}
+input:focus{border-color:#8c58ff}
+button,.btn{width:100%;display:block;border:0;border-radius:14px;padding:16px 18px;margin-top:14px;color:#fff;font-weight:800;font-size:16px;text-align:center;text-decoration:none;background:linear-gradient(135deg,#f43b47,#7b2cff)}
+button:disabled{opacity:.55}
+.btn.alt{background:#202a40}
+.mini{font-size:13px;color:#8f9ab0;line-height:1.5}
+.status{margin-top:15px;padding:14px;border-radius:12px;background:#0b101a;border:1px solid #26334f;min-height:54px;white-space:pre-wrap}
+.bar{height:8px;background:#20283a;border-radius:999px;overflow:hidden;margin-top:12px}
+.bar>i{display:block;width:0;height:100%;background:linear-gradient(90deg,#f43b47,#7b2cff);transition:width .25s ease}
+.ok{color:#8ce99a}.err{color:#ff8787}
+.step{display:flex;gap:10px;align-items:flex-start;margin:10px 0;color:#cbd3e3}
+.badge{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#202a40;font-size:13px;font-weight:800;flex:0 0 26px}
+.connected{display:inline-block;padding:7px 10px;border-radius:999px;background:#14341e;color:#8ce99a;font-size:12px;font-weight:800;letter-spacing:.04em}
+`;
 }
 
 function adminHtml(origin) {
