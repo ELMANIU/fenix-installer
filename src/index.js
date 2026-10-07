@@ -7,7 +7,7 @@ export default {
     const path = url.pathname;
 
     // Preflight CORS para consultas públicas desde FÉNIX TV / webOS.
-    if (request.method === "OPTIONS" && path === "/api/latest") {
+    if (request.method === "OPTIONS" && (path === "/api/latest" || path === "/api/install/session")) {
       return new Response(null, {
         status: 204,
         headers: corsHeaders()
@@ -44,6 +44,22 @@ export default {
         sha256: latest.sha256,
         publishedAt: latest.publishedAt,
         updateUrl: `${url.origin}/update`
+      });
+    }
+
+    // Sesión automática para FÉNIX Bridge vinculado.
+    // /update ya generaba tokens públicos para el QR; este endpoint devuelve
+    // el mismo tipo de sesión en JSON para que el Bridge pueda actualizar con un toque.
+    if (path === "/api/install/session" && request.method === "GET") {
+      if (!env.INSTALL_SIGNING_SECRET) {
+        return publicJson({ ok: false, error: "Servicio de actualización no configurado." }, 503);
+      }
+      const token = await makeInstallToken("bridge-auto", env.INSTALL_SIGNING_SECRET);
+      return publicJson({
+        ok: true,
+        token,
+        expiresIn: INSTALL_TTL_SECONDS,
+        appId: APP_ID
       });
     }
 
@@ -343,12 +359,12 @@ async function sendWelcome(env, chatId, origin) {
     parse_mode: "HTML",
     caption:
       "<b>🔥 Bienvenido a FÉNIX TV para LG webOS</b>\n\n" +
-      "Este asistente te guía desde cero y también sirve para actualizar FÉNIX TV cuando exista una versión nueva.\n\n" +
+      "Este asistente te guía desde cero. La primera vez vinculas tu LG con IP + passphrase; después FÉNIX Bridge recuerda esa TV y comprueba/actualiza con un toque.\n\n" +
       "<b>Antes de comenzar necesitas:</b>\n" +
       "• Una LG con webOS y Developer Mode.\n" +
       "• Un teléfono Android conectado a la misma Wi‑Fi.\n" +
-      "• Dev Mode Status y Key Server activados.\n\n" +
-      "Tu IP y passphrase se utilizan únicamente entre tu teléfono y tu TV.",
+      "• Dev Mode Status y Key Server activados <b>solo para la primera vinculación</b>.\n\n" +
+      "La llave y passphrase quedan protegidas en tu Android con Android Keystore; no se envían a Telegram ni a Cloudflare.",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🚀 INSTALAR FÉNIX TV", url: installLink }],
@@ -373,13 +389,12 @@ async function sendInstall(env, chatId, origin) {
     parse_mode: "HTML",
     caption:
       "<b>🚀 INSTALAR FÉNIX TV EN TU LG</b>\n\n" +
-      "1. Abre <b>Developer Mode</b> en la televisión.\n" +
-      "2. Confirma que <b>Dev Mode Status</b> y <b>Key Server</b> estén en ON.\n" +
-      "3. Deja la TV y el Android en la misma Wi‑Fi.\n" +
-      "4. Pulsa el botón de abajo para abrir FÉNIX Bridge.\n" +
-      "5. Escribe la IP y passphrase mostradas por la TV.\n" +
-      "6. Pulsa <b>INSTALAR / ACTUALIZAR FÉNIX TV</b>.\n\n" +
-      "La sesión dura 60 minutos. Si expira, vuelve a pedir una nueva desde este bot.",
+      "1. <b>Primera vez:</b> abre Developer Mode y activa Dev Mode Status + Key Server.\n" +
+      "2. Abre FÉNIX Bridge y escribe IP + passphrase una sola vez.\n" +
+      "3. Pulsa <b>VINCULAR E INSTALAR FÉNIX TV</b>.\n" +
+      "4. En adelante, abre FÉNIX Bridge: comprobará tu LG automáticamente.\n" +
+      "5. Si hay una versión nueva, pulsa <b>ACTUALIZAR MI LG</b>.\n\n" +
+      "No tendrás que volver a escribir la passphrase mientras la vinculación de Developer Mode siga vigente.",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🔥 ABRIR FÉNIX BRIDGE", url: link }],
@@ -411,7 +426,7 @@ async function sendUpdate(env, chatId, origin) {
       `<b>⬆️ ACTUALIZACIÓN DE FÉNIX TV</b>\n\n` +
       `Versión publicada: <b>${escapeHtml(latest.version)}</b>\n` +
       `Archivo: <code>${escapeHtml(latest.fileName || "")}</code>\n\n` +
-      "Si tu TV muestra una versión anterior, pulsa el botón de abajo. FÉNIX Bridge descargará el IPK publicado, comprobará su SHA‑256 y lo instalará en tu LG.",
+      "Si tu LG ya está vinculada, abre FÉNIX Bridge: detectará la versión instalada y te dirá <b>ESTÁS AL DÍA</b> o mostrará <b>ACTUALIZAR MI LG</b>. No necesitas volver a escribir IP ni passphrase.",
     reply_markup: {
       inline_keyboard: [
         [{ text: `⬆️ INSTALAR v${latest.version}`, url: link }],
@@ -454,14 +469,14 @@ async function sendGuide(env, chatId, origin) {
     {
       photo: `${base}/guide/guide-03-bridge.png`,
       caption:
-        "<b>PASO 3 · Conecta FÉNIX Bridge</b>\n" +
-        "Abre el Bridge desde este bot, escribe la IP y passphrase y pulsa <b>INSTALAR / ACTUALIZAR FÉNIX TV</b>."
+        "<b>PASO 3 · Vincula FÉNIX Bridge una sola vez</b>\n" +
+        "Abre el Bridge, escribe IP y passphrase y pulsa <b>VINCULAR E INSTALAR FÉNIX TV</b>. La llave queda protegida en tu Android."
     },
     {
       photo: `${base}/guide/guide-04-update.png`,
       caption:
         "<b>PASO 4 · Actualizaciones futuras</b>\n" +
-        "En FÉNIX TV entra a <b>Centro FÉNIX → Buscar actualización</b>. Si hay una versión nueva, escanea el QR con tu Android y vuelve a usar el Bridge."
+        "Abre FÉNIX Bridge cuando quieras: comprobará automáticamente tu LG. Si hay una versión nueva, solo pulsa <b>ACTUALIZAR MI LG</b>. El QR del Centro FÉNIX sigue funcionando como acceso rápido."
     }
   ];
 
@@ -481,7 +496,7 @@ async function sendGuide(env, chatId, origin) {
     parse_mode: "HTML",
     text:
       "<b>✅ Ya estás listo.</b>\n\n" +
-      "Cuando tengas Developer Mode abierto y los dos interruptores activados, continúa desde el botón de abajo.",
+      "La primera vinculación requiere Developer Mode + Key Server. Después FÉNIX Bridge recordará tu LG y podrás comprobar o actualizar sin volver a escribir los datos.",
     reply_markup: {
       inline_keyboard: [
         [{ text: "🚀 CONTINUAR CON LA INSTALACIÓN", url: installLink }],
@@ -508,7 +523,7 @@ async function sendHelp(env, chatId, origin) {
       "<b>/ayuda</b> — mostrar este menú\n\n" +
       "<b>Errores frecuentes:</b>\n" +
       "• <b>HTTP 401:</b> la sesión venció. Abre un botón nuevo del bot o escanea otra vez el QR.\n" +
-      "• <b>No conecta:</b> revisa misma Wi‑Fi, IP, Key Server y passphrase.\n" +
+      "• <b>No conecta:</b> revisa que la TV esté encendida, en la misma Wi‑Fi y Developer Mode siga activo. Si cambió la IP, usa CAMBIAR IP; si cambió la llave, vuelve a vincular.\n" +
       "• <b>IPK Extraction Failure:</b> el paquete publicado debe reemplazarse por un IPK válido.",
     reply_markup: {
       inline_keyboard: [
