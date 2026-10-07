@@ -7,7 +7,7 @@ export default {
     const path = url.pathname;
 
     // Preflight CORS para consultas públicas desde FÉNIX TV / webOS.
-    if (request.method === "OPTIONS" && (path === "/api/latest" || path === "/api/install/session")) {
+    if (request.method === "OPTIONS" && (path === "/api/latest" || path === "/api/install/session" || path === "/api/experience")) {
       return new Response(null, {
         status: 204,
         headers: corsHeaders()
@@ -45,6 +45,20 @@ export default {
         publishedAt: latest.publishedAt,
         updateUrl: `${url.origin}/update`
       });
+    }
+
+    // Configuración pública del Experience Engine de FÉNIX TV.
+    if (path === "/api/experience" && request.method === "GET") {
+      const obj = await env.RELEASES.get("experience.json");
+      if (!obj) {
+        return publicJson({ ok: false, error: "No hay configuración remota publicada." }, 404);
+      }
+      try {
+        const value = JSON.parse(await obj.text());
+        return publicJson(value);
+      } catch {
+        return publicJson({ ok: false, error: "La configuración remota no es JSON válido." }, 500);
+      }
     }
 
     // Sesión automática para FÉNIX Bridge vinculado.
@@ -233,6 +247,29 @@ export default {
       });
 
       return json({ ok: true, latest });
+    }
+
+    if (path === "/admin/upload-experience" && request.method === "POST") {
+      if (!isAdmin(request, env)) {
+        return json({ ok: false, error: "No autorizado" }, 401);
+      }
+      const form = await request.formData();
+      const file = form.get("experience");
+      if (!(file instanceof File) || !file.name.toLowerCase().endsWith(".json")) {
+        return json({ ok: false, error: "Selecciona fenix-experience.json" }, 400);
+      }
+      const textValue = await file.text();
+      let parsed;
+      try { parsed = JSON.parse(textValue); }
+      catch { return json({ ok: false, error: "El archivo no contiene JSON válido" }, 400); }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return json({ ok: false, error: "La configuración debe ser un objeto JSON" }, 400);
+      }
+      parsed.updatedAt = new Date().toISOString();
+      await env.RELEASES.put("experience.json", JSON.stringify(parsed, null, 2), {
+        httpMetadata: { contentType: "application/json; charset=utf-8" }
+      });
+      return json({ ok: true, updatedAt: parsed.updatedAt, schemaVersion: parsed.schemaVersion || 1 });
     }
 
     if (path === "/admin/upload-installer" && request.method === "POST") {
@@ -4094,6 +4131,15 @@ pre{white-space:pre-wrap;color:#b9c4d8}
   </div>
 
   <div class="card">
+    <b>FÉNIX Experience Manager</b>
+    <p style="color:#9ba8c2;line-height:1.5">Publica temporadas, mantenimiento, campañas, FÉNIX Now, Home dinámica y trailers sin generar otro IPK.</p>
+    <input id="experience" type="file" accept=".json,application/json">
+    <button onclick="upExperience()">PUBLICAR FENIX-EXPERIENCE.JSON</button>
+    <div class="okline">${origin}/api/experience</div>
+    <pre id="experienceOut"></pre>
+  </div>
+
+  <div class="card">
     <b>Endpoint público de actualización</b>
     <div class="okline">${origin}/api/latest</div>
     <button onclick="latest()">CONSULTAR ÚLTIMA VERSIÓN</button>
@@ -4112,6 +4158,7 @@ pre{white-space:pre-wrap;color:#b9c4d8}
 const o=document.getElementById('o');
 const latestOut=document.getElementById('latestOut');
 const botOut=document.getElementById('botOut');
+const experienceOut=document.getElementById('experienceOut');
 
 async function up(){
   const file=ipk.files[0];
@@ -4152,6 +4199,17 @@ async function upApk(){
     body:f
   });
   o.textContent=await r.text();
+}
+
+async function upExperience(){
+  const file=experience.files[0];
+  if(!file){ experienceOut.textContent='Selecciona fenix-experience.json.'; return; }
+  const f=new FormData(); f.append('experience',file);
+  experienceOut.textContent='Publicando experiencia…';
+  try{
+    const r=await fetch('/admin/upload-experience',{method:'POST',headers:{'x-admin-token':tok.value},body:f});
+    experienceOut.textContent=await r.text();
+  }catch(e){ experienceOut.textContent='Error: '+e.message; }
 }
 
 async function latest(){
