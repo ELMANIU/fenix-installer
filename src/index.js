@@ -37,12 +37,32 @@ export default {
         fileName: latest.fileName,
         size: latest.size,
         sha256: latest.sha256,
-        publishedAt: latest.publishedAt
+        publishedAt: latest.publishedAt,
+        updateUrl: `${url.origin}/update`
       });
     }
 
     if (path === "/telegram" && request.method === "POST") {
       return handleTelegram(request, env, url.origin);
+    }
+
+    // Entrada pública para actualizaciones iniciadas desde el QR del Centro FÉNIX.
+    // Genera una sesión temporal firmada y reutiliza el mismo flujo seguro del Bridge.
+    if (path === "/update" && request.method === "GET") {
+      if (!env.INSTALL_SIGNING_SECRET) {
+        return new Response("Servicio de actualización no configurado.", { status: 503 });
+      }
+      const token = await makeInstallToken("tv-update", env.INSTALL_SIGNING_SECRET);
+      const target = `${url.origin}/install?t=${encodeURIComponent(token)}&source=tv`;
+      return new Response(null, {
+        status: 302,
+        headers: {
+          "location": target,
+          "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+          "pragma": "no-cache",
+          "referrer-policy": "no-referrer"
+        }
+      });
     }
 
     if (path === "/install" && request.method === "GET") {
